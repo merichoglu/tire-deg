@@ -16,7 +16,17 @@ import numpy as np
 import pandas as pd
 
 DATA = Path("data/laps_corrected.parquet")
+FITS = Path("data/race_fits.parquet")
 OUT = Path("data/temporal_holdout.parquet")
+
+STREET_CIRCUITS = {
+    "Azerbaijan Grand Prix",
+    "Singapore Grand Prix",
+    "Monaco Grand Prix",
+    "Saudi Arabian Grand Prix",
+    "Las Vegas Grand Prix",
+    "Miami Grand Prix",
+}
 
 ALPHA = 0.20
 SEED = 12
@@ -30,6 +40,8 @@ FEATURES_NUMERIC = [
     "stint",
     "starting_tyre_life",
     "fresh_tyre",
+    "is_street",
+    "evo_swing",
     "air_temp",
     "track_temp",
     "humidity",
@@ -38,13 +50,14 @@ FEATURES_NUMERIC = [
 FEATURES_CATEGORICAL = ["compound", "event", "team"]
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def build_features(df: pd.DataFrame, fits: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["starting_tyre_life"] = df.groupby(["year", "round", "driver", "stint"])[
         "tyre_life"
     ].transform("min")
     df["tyre_life_sq"] = df["tyre_life"].astype(float) ** 2
     df["fresh_tyre"] = df["fresh_tyre"].astype(float)
+    df["is_street"] = df["event"].isin(STREET_CIRCUITS).astype(float)
     df["age_soft"] = np.where(df["compound"] == "SOFT", df["tyre_life"], 0).astype(
         float
     )
@@ -54,13 +67,16 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df["age_hard"] = np.where(df["compound"] == "HARD", df["tyre_life"], 0).astype(
         float
     )
+    evo = fits[["year", "round", "evo_swing"]].drop_duplicates()
+    df = df.merge(evo, on=["year", "round"], how="left")
     return df
 
 
 def main():
     df = pd.read_parquet(DATA)
+    fits = pd.read_parquet(FITS)
     df = df[df["fit_ok"]].copy()
-    df = build_features(df)
+    df = build_features(df, fits)
 
     needed = FEATURES_NUMERIC + FEATURES_CATEGORICAL + ["deg_s"]
     df = df.dropna(subset=needed).reset_index(drop=True)
@@ -167,6 +183,8 @@ def main():
             "tyre_life",
             "stint",
             "fresh_tyre",
+            "is_street",
+            "evo_swing",
             "air_temp",
             "track_temp",
             "deg_s",

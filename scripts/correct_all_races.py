@@ -89,7 +89,10 @@ def fit_one_race(group: pd.DataFrame) -> tuple[pd.DataFrame, dict] | None:
     resid_rmse = float(g["resid_s"].std())
     # Quality gate: R² >= 0.5 AND residual RMSE <= 1.0s. Bad-fit races usually had
     # red flags / SC chaos that the model can't account for.
-    fit_ok = bool((r2 >= 0.5) and (resid_rmse <= 1.0))
+    # Also exclude races where the OLS yields a strongly negative time trend
+    # (beta_lap_n < -0.10), indicating the correction absorbed the deg signal
+    # into a physically implausible negative track-evolution estimate.
+    fit_ok = bool((r2 >= 0.5) and (resid_rmse <= 1.0) and (beta_lap_n > -0.10))
     g["fit_ok"] = fit_ok
 
     summary = {

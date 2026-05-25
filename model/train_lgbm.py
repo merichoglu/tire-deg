@@ -26,8 +26,18 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold
 
 DATA = Path("data/laps_corrected.parquet")
+FITS = Path("data/race_fits.parquet")
 OUT_OOF = Path("data/oof_predictions.parquet")
 OUT_Q = Path("data/conformal_q.json")
+
+STREET_CIRCUITS = {
+    "Azerbaijan Grand Prix",
+    "Singapore Grand Prix",
+    "Monaco Grand Prix",
+    "Saudi Arabian Grand Prix",
+    "Las Vegas Grand Prix",
+    "Miami Grand Prix",
+}
 
 N_FOLDS = 5
 CALIB_FRAC = 0.20  # of training races, by stint
@@ -43,6 +53,8 @@ FEATURES_NUMERIC = [
     "stint",
     "starting_tyre_life",
     "fresh_tyre",
+    "is_street",
+    "evo_swing",
     "air_temp",
     "track_temp",
     "humidity",
@@ -51,7 +63,7 @@ FEATURES_NUMERIC = [
 FEATURES_CATEGORICAL = ["compound", "event", "team"]
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def build_features(df: pd.DataFrame, fits: pd.DataFrame) -> pd.DataFrame:
     """Add engineered features. starting_tyre_life captures used-set effects;
     age_soft/medium/hard are compound-specific tyre_life splines so the trees can
     learn distinct deg curves per compound without relying on the categorical
@@ -62,6 +74,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     ].transform("min")
     df["tyre_life_sq"] = df["tyre_life"].astype(float) ** 2
     df["fresh_tyre"] = df["fresh_tyre"].astype(float)
+    df["is_street"] = df["event"].isin(STREET_CIRCUITS).astype(float)
     df["age_soft"] = np.where(df["compound"] == "SOFT", df["tyre_life"], 0).astype(
         float
     )
@@ -71,14 +84,18 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df["age_hard"] = np.where(df["compound"] == "HARD", df["tyre_life"], 0).astype(
         float
     )
+    # Join race-level evo_swing so the model can discount high-uncertainty corrections
+    evo = fits[["year", "round", "evo_swing"]].drop_duplicates()
+    df = df.merge(evo, on=["year", "round"], how="left")
     return df
 
 
 def main():
     df = pd.read_parquet(DATA)
+    fits = pd.read_parquet(FITS)
     # Only train on races where the correction is reliable.
     df = df[df["fit_ok"]].copy()
-    df = build_features(df)
+    df = build_features(df, fits)
 
     # Drop any rows missing required features (deg_s is NaN when the stint had no
     # lap in age 2-4 to form a fresh-pace reference)
@@ -212,6 +229,8 @@ def main():
             "stint",
             "starting_tyre_life",
             "fresh_tyre",
+            "is_street",
+            "evo_swing",
             "air_temp",
             "track_temp",
             "humidity",
