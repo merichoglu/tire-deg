@@ -1,7 +1,6 @@
 # F1 Tyre Degradation Model
 
-End-to-end pipeline for modelling F1 tyre pace loss from raw timing data.
-Covers data ingestion, confounder correction, two ML models, and a race strategy simulator.
+End-to-end pipeline for modelling F1 tyre pace loss from raw timing data. Raw laps → fuel/track-evolution correction → two degradation models → race strategy simulator.
 
 ---
 
@@ -41,7 +40,7 @@ Each race is fit with an OLS model `laptime ~ driver + lap_n + lap_n² + age:com
 - Residual RMSE ≤ 1.0 s
 - `beta_lap_n > −0.10` (rules out races where the correction absorbed tyre deg into a physically implausible negative track-trend)
 
-9 races fail, mostly Monaco, Singapore 2023, and Azerbaijan 2025 (SC-heavy with corrupted lap time distributions).
+9 races fail, mostly Monaco, Singapore 2023, and Azerbaijan 2025 — SC-heavy races with heavily distorted lap time distributions.
 
 ---
 
@@ -82,7 +81,7 @@ deg_s = pace_loss_s − stint_ref_pace
 | is_street          | 0.9%       |
 | compound           | 0.2%       |
 
-`compound` ranks low because `deg_s` is stint-referenced — the compound effect is in the _shape_ of the curve, captured by `age_soft/medium/hard` interaction features and the track embedding.
+`compound` ranks low because `deg_s` is stint-referenced. The compound effect lives in the _shape_ of the curve, captured by `age_soft/medium/hard` interaction features and the track embedding.
 
 ![Feature importance](figures/v1_feature_importance.png)
 
@@ -112,7 +111,7 @@ By compound:
 
 ### v1b — Conformalized Quantile Regression (CQR)
 
-Same features. Three LightGBM models per fold: MAE point estimate, lower quantile (α/2), upper quantile (1−α/2). CQR nonconformity score `max(q_lo − y, y − q_hi)` calibrates the interval width, giving adaptive (heteroskedastic) intervals with a coverage guarantee.
+Same features. Three LightGBM models per fold: MAE point estimate, lower quantile (α/2), upper quantile (1−α/2). The CQR nonconformity score `max(q_lo − y, y − q_hi)` calibrates interval width. The resulting intervals are adaptive (heteroskedastic) with a formal coverage guarantee.
 
 | Metric         | v1 conformal | v1b CQR     |
 | -------------- | ------------ | ----------- |
@@ -153,7 +152,7 @@ LightGBM wins on MAE. Bayesian undercoverage is partly due to subsampling — th
 
 ## Temporal holdout: 2023–2024 → 2025
 
-Train on 34 races (2023–24), test on 19 races (2025). This is the honest out-of-sample evaluation — the model has never seen the 2025 season.
+Train on 34 races (2023–24), test on 19 races (2025). The model is fit entirely on pre-2025 data.
 
 | Metric       | CV (5-fold) | Temporal 2025 |
 | ------------ | ----------- | ------------- |
@@ -162,7 +161,7 @@ Train on 34 races (2023–24), test on 19 races (2025). This is the honest out-o
 | Improvement  | 22.9%       | 16.4%         |
 | 80% coverage | 75.7%       | 75.8%         |
 
-8% MAE degradation season-to-season. Coverage is stable, suggesting the conformal calibration generalises.
+8% MAE degradation season-to-season. Coverage holds, which means the conformal calibration generalises to a new season.
 
 **Per-track MAE (2025 test set)**
 
@@ -178,7 +177,7 @@ Train on 34 races (2023–24), test on 19 races (2025). This is the honest out-o
 | Japanese GP       | 997       | 0.872 s     | 57.7%     |
 | **Singapore GP**  | **1,069** | **1.093 s** | **46.9%** |
 
-Singapore and Japan are persistent outliers. Root cause: at Singapore, `deg_s` has only r=0.49 correlation with tyre age (vs r=0.59 at Austria) — the correction model absorbs real degradation signal into track-evolution noise at street circuits with heavy safety car activity.
+Singapore and Japan are persistent outliers. At Singapore, `deg_s` has only r=0.49 correlation with tyre age (vs r=0.59 at Austria) — the correction model absorbs real degradation signal into track-evolution noise at street circuits with heavy safety car activity.
 
 ---
 
@@ -208,7 +207,7 @@ The joint model wins by borrowing cross-compound track information. A track that
 | 2-stop: MED → HARD → SOFT | +16.5 s  | +44 s    | +60.5 s     |
 | 2-stop: SOFT → MED → HARD | +16.7 s  | +44 s    | +60.7 s     |
 
-1-stop strategies dominate once the 44 s double-pit penalty is included. HARD→MEDIUM beats MEDIUM→HARD because running the harder tyre fresh (lower initial deg rate) and switching to MEDIUM for the final stint is more efficient than the reverse.
+1-stop strategies dominate once the 44 s double-pit penalty is included. HARD→MEDIUM beats MEDIUM→HARD because the hard compound degrades slowest when fresh — it's more valuable at the start of a stint than at the end.
 
 ```python
 from model.strategy_sim import load_model, simulate
