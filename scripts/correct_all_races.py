@@ -135,6 +135,20 @@ def main():
     laps_out = pd.concat(all_lap_frames, ignore_index=True)
     fits_out = pd.DataFrame(all_summaries)
 
+    # Compute deg_s: per-stint pace loss relative to that stint's own fresh
+    # reference (mean of pace_loss_s on laps 2-4 of the stint). This is the
+    # actual modelling target — the tyre-degradation component, with car/driver/
+    # race base pace removed.
+    ref = (
+        laps_out[laps_out["age"].between(2, 4)]
+        .groupby(["year", "round", "driver", "stint"])["pace_loss_s"]
+        .mean()
+        .rename("stint_ref_pace")
+        .reset_index()
+    )
+    laps_out = laps_out.merge(ref, how="left", on=["year", "round", "driver", "stint"])
+    laps_out["deg_s"] = laps_out["pace_loss_s"] - laps_out["stint_ref_pace"]
+
     laps_out.to_parquet(OUT_LAPS, index=False)
     fits_out.to_parquet(OUT_FITS, index=False)
 
